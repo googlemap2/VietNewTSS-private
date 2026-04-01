@@ -1,0 +1,4 @@
+engine_mode: standard
+sample_rate: 22050
+output_dir: outputs
+voice: default
