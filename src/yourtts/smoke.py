@@ -5,9 +5,11 @@ from pathlib import Path
 import yaml
 
 from yourtts.factory import create_engine
+from yourtts.utils.env import load_dotenv
 
 
 def main() -> None:
+    load_dotenv()
     config_path = Path("config.yaml")
     config = {}
     if config_path.exists():

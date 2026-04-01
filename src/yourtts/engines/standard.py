@@ -9,6 +9,9 @@ from yourtts.utils.voices import load_voices
 class StandardEngine(BaseEngine):
     """MVP engine that generates deterministic test audio."""
 
+    def list_voices(self) -> list[str]:
+        return list(load_voices().keys())
+
     def infer(self, text: str, voice: str | None = None, ref_audio: str | None = None) -> np.ndarray:
         prompt = self.validate_text(text)
 

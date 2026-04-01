@@ -40,6 +40,10 @@ class BaseEngine(ABC):
     def infer(self, text: str, voice: str | None = None, ref_audio: str | None = None) -> np.ndarray:
         """Return mono audio waveform as float32 array in range [-1, 1]."""
 
+    def list_voices(self) -> list[str]:
+        default_voice = (self.voice or "default").strip()
+        return [default_voice or "default"]
+
     def validate_text(self, text: str) -> str:
         cleaned = text.strip()
         if not cleaned:

@@ -9,7 +9,7 @@ import soundfile as sf
 import yaml
 
 from yourtts.factory import create_engine
-from yourtts.utils.voices import voice_names
+from yourtts.utils.env import load_dotenv
 
 
 def load_config() -> dict:
@@ -19,8 +19,8 @@ def load_config() -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+load_dotenv()
 config = load_config()
-available_voices = voice_names(config.get("voices_file", "assets/voices.json"))
 engine = create_engine(
     mode=config.get("engine_mode", "standard"),
     sample_rate=int(config.get("sample_rate", 22050)),
@@ -30,6 +30,7 @@ engine = create_engine(
     model_name=config.get("model_name", "pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf"),
     cache_size=int(config.get("cache_size", 128)),
 )
+available_voices = engine.list_voices()
 
 app = Flask(__name__)
 
