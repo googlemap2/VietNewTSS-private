@@ -26,7 +26,7 @@ def main() -> None:
         output_dir=output_dir,
         voice=voice,
         device=config.get("device", "cpu"),
-        model_name=config.get("model_name", "pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf"),
+        model_name=config.get("model_name", "pnnbao-ump/VieNeu-TTS-0.3B-q8-gguf"),
         cache_size=int(config.get("cache_size", 128)),
     )
     out_path = str(Path(output_dir) / "smoke.wav")

@@ -12,7 +12,7 @@ class StandardEngine(BaseEngine):
     def list_voices(self) -> list[str]:
         return list(load_voices().keys())
 
-    def infer(self, text: str, voice: str | None = None, ref_audio: str | None = None) -> np.ndarray:
+    def infer(self, text: str, voice: str | None = None, ref_audio: str | None = None, **kwargs) -> np.ndarray:
         prompt = self.validate_text(text)
 
         duration_sec = max(0.35, min(4.0, len(prompt) * 0.04))

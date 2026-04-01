@@ -3,6 +3,6 @@ sample_rate: 24000
 output_dir: outputs
 voice: default
 device: cpu
-model_name: pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf
+model_name: pnnbao-ump/VieNeu-TTS-0.3B-q8-gguf
 voices_file: assets/voices.json
 cache_size: 128

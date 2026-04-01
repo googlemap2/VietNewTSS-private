@@ -23,6 +23,10 @@ dev = [
 vieneu = [
   "vieneu>=2.0.0",
 ]
+all = [
+  "pytest>=8.0",
+  "vieneu>=2.0.0",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

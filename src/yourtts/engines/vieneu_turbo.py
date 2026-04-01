@@ -11,6 +11,18 @@ class VieneuTurboEngine(BaseEngine):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._tts = None
+        # Turbo generation is stochastic; caching can pin a bad first sample forever.
+        self.cache_size = 0
+        self._wave_cache.clear()
+        self.temperature = 0.35
+        self.top_k = 40
+        self.max_chars = 256
+
+    def _prepare_text(self, text: str) -> str:
+        prompt = self.validate_text(text)
+        if prompt[-1] not in ".!?":
+            return f"{prompt}."
+        return prompt
 
     def _load_tts(self):
         if self._tts is not None:
@@ -21,7 +33,7 @@ class VieneuTurboEngine(BaseEngine):
         except ImportError as exc:
             raise RuntimeError("vieneu is not installed. Run: pip install -e .[vieneu]") from exc
 
-        model = self.model_name or "pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf"
+        model = self.model_name or "pnnbao-ump/VieNeu-TTS-0.3B-q8-gguf"
         self._tts = Vieneu(mode="turbo", model_name=model)
         # VieNeu turbo models output 24kHz audio. Sync runtime sample-rate to avoid
         # playback artifacts when writing WAV with an outdated project config.
@@ -73,24 +85,49 @@ class VieneuTurboEngine(BaseEngine):
         # Keep order while removing duplicates.
         return list(dict.fromkeys(normalized))
 
-    def infer(self, text: str, voice: str | None = None, ref_audio: str | None = None) -> np.ndarray:
-        prompt = self.validate_text(text)
+    def infer(
+        self,
+        text: str,
+        voice: str | None = None,
+        ref_audio: str | None = None,
+        temperature: float | None = None,
+        top_k: int | None = None,
+        max_chars: int | None = None,
+        skip_normalize: bool | None = None,
+        skip_phonemize: bool | None = None,
+        **kwargs,
+    ) -> np.ndarray:
+        prompt = self._prepare_text(text)
         tts = self._load_tts()
 
-        kwargs = {"text": prompt}
+        infer_kwargs = dict(kwargs)
+        infer_kwargs["text"] = prompt
         resolved_voice = self._resolve_voice(voice)
         if resolved_voice is not None:
-            kwargs["voice"] = resolved_voice
+            infer_kwargs["voice"] = resolved_voice
 
         if ref_audio:
             try:
                 ref_voice = tts.encode_reference(ref_audio)
-                kwargs["voice"] = ref_voice
+                infer_kwargs["voice"] = ref_voice
             except Exception:
                 # Keep resolved preset/default voice fallback.
                 pass
 
-        audio = tts.infer(**kwargs)
+        selected_temperature = self.temperature if temperature is None else float(temperature)
+        selected_top_k = self.top_k if top_k is None else int(top_k)
+        selected_max_chars = self.max_chars if max_chars is None else int(max_chars)
+        selected_skip_normalize = False if skip_normalize is None else bool(skip_normalize)
+        selected_skip_phonemize = False if skip_phonemize is None else bool(skip_phonemize)
+
+        audio = tts.infer(
+            **infer_kwargs,
+            temperature=selected_temperature,
+            top_k=selected_top_k,
+            max_chars=selected_max_chars,
+            skip_normalize=selected_skip_normalize,
+            skip_phonemize=selected_skip_phonemize,
+        )
         waveform = np.asarray(audio, dtype=np.float32)
         if waveform.ndim == 2:
             waveform = waveform.mean(axis=1)
@@ -100,15 +137,15 @@ class VieneuTurboEngine(BaseEngine):
             waveform = waveform / peak
         return waveform.astype(np.float32)
 
-    def synthesize_waveform(self, text: str, voice: str | None = None, ref_audio: str | None = None) -> np.ndarray:
+    def synthesize_waveform(self, text: str, voice: str | None = None, ref_audio: str | None = None, **kwargs) -> np.ndarray:
         # Send the full text directly to VieNeu turbo to avoid chunk boundary artifacts.
         checked_text = self.validate_text(text)
-        key = self._make_cache_key(checked_text, voice, ref_audio=ref_audio)
+        key = self._make_cache_key(checked_text, voice, ref_audio=ref_audio, synth_options=kwargs)
         cached = self._cache_get(key)
         if cached is not None:
             return cached
 
-        waveform = self.infer(checked_text, voice=voice, ref_audio=ref_audio)
+        waveform = self.infer(checked_text, voice=voice, ref_audio=ref_audio, **kwargs)
         if waveform.ndim != 1:
             raise ValueError("Engine infer() must return a mono 1D waveform.")
 

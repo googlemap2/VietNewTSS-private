@@ -5,6 +5,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Iterable
 import hashlib
+import json
 
 import numpy as np
 import soundfile as sf
@@ -37,7 +38,13 @@ class BaseEngine(ABC):
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     @abstractmethod
-    def infer(self, text: str, voice: str | None = None, ref_audio: str | None = None) -> np.ndarray:
+    def infer(
+        self,
+        text: str,
+        voice: str | None = None,
+        ref_audio: str | None = None,
+        **kwargs,
+    ) -> np.ndarray:
         """Return mono audio waveform as float32 array in range [-1, 1]."""
 
     def list_voices(self) -> list[str]:
@@ -50,10 +57,20 @@ class BaseEngine(ABC):
             raise ValueError("Input text must not be empty.")
         return cleaned
 
-    def _make_cache_key(self, text: str, voice: str | None, ref_audio: str | None = None) -> str:
+    def _make_cache_key(
+        self,
+        text: str,
+        voice: str | None,
+        ref_audio: str | None = None,
+        synth_options: dict | None = None,
+    ) -> str:
         resolved_voice = (voice or self.voice).strip().lower()
         resolved_ref = (ref_audio or "").strip()
-        payload = f"{self.model_name}|{self.sample_rate}|{resolved_voice}|{resolved_ref}|{text}"
+        normalized_options = synth_options or {}
+        payload = (
+            f"{self.model_name}|{self.sample_rate}|{resolved_voice}|{resolved_ref}|"
+            f"{json.dumps(normalized_options, sort_keys=True, ensure_ascii=True)}|{text}"
+        )
         return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
     def _cache_get(self, key: str) -> np.ndarray | None:
@@ -80,9 +97,9 @@ class BaseEngine(ABC):
             "misses": self.cache_misses,
         }
 
-    def synthesize_waveform(self, text: str, voice: str | None = None, ref_audio: str | None = None) -> np.ndarray:
+    def synthesize_waveform(self, text: str, voice: str | None = None, ref_audio: str | None = None, **kwargs) -> np.ndarray:
         checked_text = self.validate_text(text)
-        key = self._make_cache_key(checked_text, voice, ref_audio=ref_audio)
+        key = self._make_cache_key(checked_text, voice, ref_audio=ref_audio, synth_options=kwargs)
         cached = self._cache_get(key)
         if cached is not None:
             return cached
@@ -91,7 +108,7 @@ class BaseEngine(ABC):
         if not chunks:
             raise ValueError("No valid text chunks were generated from input.")
 
-        wave_chunks = [self.infer(chunk, voice=voice, ref_audio=ref_audio) for chunk in chunks]
+        wave_chunks = [self.infer(chunk, voice=voice, ref_audio=ref_audio, **kwargs) for chunk in chunks]
         waveform = crossfade_concat(wave_chunks, sample_rate=self.sample_rate)
         if waveform.ndim != 1:
             raise ValueError("Engine infer() must return a mono 1D waveform.")
@@ -110,8 +127,9 @@ class BaseEngine(ABC):
         output_path: str,
         voice: str | None = None,
         ref_audio: str | None = None,
+        **kwargs,
     ) -> str:
-        waveform = self.synthesize_waveform(text=text, voice=voice, ref_audio=ref_audio)
+        waveform = self.synthesize_waveform(text=text, voice=voice, ref_audio=ref_audio, **kwargs)
 
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -125,6 +143,7 @@ class BaseEngine(ABC):
         voice: str | None = None,
         ref_audio: str | None = None,
         prefix: str = "batch",
+        **kwargs,
     ) -> list[str]:
         target_dir = Path(output_dir) if output_dir else self.output_dir
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -133,5 +152,13 @@ class BaseEngine(ABC):
         for idx, text in enumerate(texts, start=1):
             name = f"{prefix}_{idx:03d}.wav"
             out = target_dir / name
-            produced.append(self.synthesize_to_file(text=text, output_path=str(out), voice=voice, ref_audio=ref_audio))
+            produced.append(
+                self.synthesize_to_file(
+                    text=text,
+                    output_path=str(out),
+                    voice=voice,
+                    ref_audio=ref_audio,
+                    **kwargs,
+                )
+            )
         return produced

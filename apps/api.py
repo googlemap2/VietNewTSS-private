@@ -4,12 +4,15 @@ from datetime import datetime
 import io
 from pathlib import Path
 
+from yourtts.utils.env import load_dotenv
+
+load_dotenv()
+
 from flask import Flask, Response, jsonify, request
 import soundfile as sf
 import yaml
 
 from yourtts.factory import create_engine
-from yourtts.utils.env import load_dotenv
 
 
 def load_config() -> dict:
@@ -19,7 +22,6 @@ def load_config() -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
-load_dotenv()
 config = load_config()
 engine = create_engine(
     mode=config.get("engine_mode", "standard"),
@@ -27,7 +29,7 @@ engine = create_engine(
     output_dir=config.get("output_dir", "outputs"),
     voice=config.get("voice", "default"),
     device=config.get("device", "cpu"),
-    model_name=config.get("model_name", "pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf"),
+    model_name=config.get("model_name", "pnnbao-ump/VieNeu-TTS-0.3B-q8-gguf"),
     cache_size=int(config.get("cache_size", 128)),
 )
 available_voices = engine.list_voices()

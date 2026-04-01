@@ -18,4 +18,4 @@ def load_dotenv(path: str = ".env") -> None:
         value = value.strip().strip("'").strip('"')
         if not key:
             continue
-        os.environ.setdefault(key, value)
+        os.environ[key] = value

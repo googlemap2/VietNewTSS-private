@@ -15,4 +15,5 @@ htmlcov/
 outputs/
 *.wav
 .env
+.hf_home/
 .DS_Store
