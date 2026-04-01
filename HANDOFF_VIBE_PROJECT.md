@@ -77,26 +77,26 @@
 ## Scope Phases
 
 ### Phase 1 - MVP Core
-- [ ] Create package skeleton (`src/yourtts/...`).
-- [ ] Implement `BaseEngine` interface.
-- [ ] Implement `Factory(mode=...)`.
-- [ ] Implement one real engine (`standard`) with `infer()`.
-- [ ] Save audio output via `soundfile`.
-- [ ] Add a simple smoke script to validate full path quickly.
+- [x] Create package skeleton (`src/yourtts/...`).
+- [x] Implement `BaseEngine` interface.
+- [x] Implement `Factory(mode=...).`
+- [x] Implement one real engine (`standard`) with `infer()`.
+- [x] Save audio output via `soundfile`.
+- [x] Add a simple smoke script to validate full path quickly.
 
 ### Phase 2 - Usable Product
-- [ ] Add preset voices (`voices.json`).
-- [ ] Add text split + chunk join utilities.
-- [ ] Add basic Gradio web UI.
-- [ ] Add simple API (`POST /synthesize`).
-- [ ] Add config file for model/device settings.
+- [x] Add preset voices (`voices.json`).
+- [x] Add text split + chunk join utilities.
+- [x] Add basic Gradio web UI.
+- [x] Add simple API (`POST /synthesize`).
+- [x] Add config file for model/device settings.
 
 ### Phase 3 - Quality & Scale
-- [ ] Add batch inference.
-- [ ] Add streaming inference (optional if time allows).
-- [ ] Add caching + warmup.
-- [ ] Add tests for factory, utils, and one engine path.
-- [ ] Add Docker run path.
+- [x] Add batch inference.
+- [x] Add streaming inference (optional if time allows).
+- [x] Add caching + warmup.
+- [x] Add tests for factory, utils, and one engine path.
+- [x] Add Docker run path.
 
 ## Session Startup Checklist (For Any New Codex Agent)
 - [ ] Read this file first.
@@ -120,8 +120,8 @@
 - Next first task:
 
 ## Current Status (Initialize)
-- Active phase: **Phase 1 - MVP Core**
-- Next task: **Create package skeleton + BaseEngine + Factory in empty folder**
+- Active phase: **Phase 3 - Quality & Scale (MVP Complete)**
+- Next task: **Stabilize VieNeu Turbo GGUF backend (model download/cache/startup) and tune cloning quality for Vietnamese**
 - Blockers: **None recorded yet**
 
 ## Definition of Momentum

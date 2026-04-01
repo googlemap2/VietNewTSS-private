@@ -20,6 +20,9 @@ dependencies = [
 dev = [
   "pytest>=8.0",
 ]
+vieneu = [
+  "vieneu>=2.0.0",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

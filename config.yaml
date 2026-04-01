@@ -1,4 +1,8 @@
-engine_mode: standard
+engine_mode: turbo
 sample_rate: 22050
 output_dir: outputs
 voice: default
+device: cpu
+model_name: pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf
+voices_file: assets/voices.json
+cache_size: 128

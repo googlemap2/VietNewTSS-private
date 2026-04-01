@@ -18,9 +18,21 @@ def main() -> None:
     output_dir = config.get("output_dir", "outputs")
     voice = config.get("voice", "default")
 
-    engine = create_engine(mode=mode, sample_rate=sample_rate, output_dir=output_dir, voice=voice)
+    engine = create_engine(
+        mode=mode,
+        sample_rate=sample_rate,
+        output_dir=output_dir,
+        voice=voice,
+        device=config.get("device", "cpu"),
+        model_name=config.get("model_name", "pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf"),
+        cache_size=int(config.get("cache_size", 128)),
+    )
     out_path = str(Path(output_dir) / "smoke.wav")
-    produced = engine.synthesize_to_file("Hello from yourtts smoke path.", output_path=out_path, voice=voice)
+    smoke_text = (
+        "Hello from yourtts smoke path. "
+        "This sentence is intentionally longer so phase two text chunking and audio join are exercised."
+    )
+    produced = engine.synthesize_to_file(smoke_text, output_path=out_path, voice=voice)
     print(f"Smoke complete. Generated: {produced}")
 
 
