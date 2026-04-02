@@ -193,7 +193,7 @@ with gr.Blocks(title="yourtts") as demo:
         )
         top_k_input = gr.Slider(
             label="Top-k (higher = more variation)",
-            minimum=10,
+            minimum=1,
             maximum=100,
             step=1,
             value=default_top_k,
