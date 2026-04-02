@@ -8,9 +8,12 @@ from yourtts.utils.env import load_dotenv
 load_dotenv()
 
 import gradio as gr
+import numpy as np
+import soundfile as sf
 import yaml
 
 from yourtts.factory import create_engine
+from yourtts.utils.srt import decode_srt_bytes, parse_srt_text
 
 
 def load_config() -> dict:
@@ -39,6 +42,34 @@ default_voice = configured_voice if configured_voice in available_voices else (a
 
 def _runtime_options(temperature: float, top_k: int) -> dict:
     return {"temperature": float(temperature), "top_k": int(top_k)}
+
+
+def _synthesize_srt_segments(segments, voice: str | None, temperature: float, top_k: int) -> np.ndarray:
+    timeline = np.zeros(0, dtype=np.float32)
+    runtime_options = _runtime_options(temperature, top_k)
+    for seg in segments:
+        wave = np.asarray(
+            engine.synthesize_waveform(text=seg.text, voice=voice, **runtime_options),
+            dtype=np.float32,
+        ).reshape(-1)
+        if wave.size == 0:
+            continue
+
+        start_sample = max(0, int(round(seg.start_ms * engine.sample_rate / 1000.0)))
+        if timeline.size < start_sample:
+            timeline = np.concatenate([timeline, np.zeros(start_sample - timeline.size, dtype=np.float32)])
+
+        end_sample = start_sample + wave.size
+        if timeline.size < end_sample:
+            timeline = np.concatenate([timeline, np.zeros(end_sample - timeline.size, dtype=np.float32)])
+
+        timeline[start_sample:end_sample] += wave
+
+    if timeline.size:
+        peak = float(np.max(np.abs(timeline)))
+        if peak > 1.0:
+            timeline = timeline / peak
+    return timeline.astype(np.float32)
 
 
 def synthesize(text: str, voice: str, temperature: float, top_k: int) -> str:
@@ -77,6 +108,38 @@ def synthesize_batch(text_blob: str, voice: str, temperature: float, top_k: int)
         prefix="web_batch",
         **_runtime_options(temperature, top_k),
     )
+
+
+def synthesize_srt_file(srt_file: str | None, voice: str, temperature: float, top_k: int) -> tuple[str | None, dict]:
+    if not srt_file:
+        return None, {"status": "error", "detail": "Please upload an .srt file."}
+
+    source = Path(srt_file)
+    if not source.exists():
+        return None, {"status": "error", "detail": "Uploaded SRT file was not found on disk."}
+
+    raw_text = decode_srt_bytes(source.read_bytes()).strip()
+    if not raw_text:
+        return None, {"status": "error", "detail": "Uploaded SRT file is empty."}
+
+    segments = parse_srt_text(raw_text)
+    if not segments:
+        return None, {"status": "error", "detail": "No valid subtitle segments found in SRT."}
+
+    waveform = _synthesize_srt_segments(segments, voice=voice, temperature=temperature, top_k=top_k)
+    if waveform.size == 0:
+        return None, {"status": "error", "detail": "Could not render audio from SRT segments."}
+
+    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+    output_path = Path(config.get("output_dir", "outputs")) / f"web_srt_{stamp}.wav"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(output_path, waveform, engine.sample_rate)
+    return str(output_path), {
+        "status": "ok",
+        "output_path": str(output_path),
+        "segment_count": len(segments),
+        "duration_sec": round(float(waveform.size) / float(engine.sample_rate), 3),
+    }
 
 
 def run_warmup() -> dict:
@@ -145,6 +208,22 @@ with gr.Blocks(title="yourtts") as demo:
             fn=synthesize_clone,
             inputs=[clone_text, clone_voice, clone_ref, temperature_input, top_k_input],
             outputs=clone_audio,
+        )
+
+    with gr.Tab("SRT"):
+        srt_file = gr.File(label="Subtitle File (.srt)", file_types=[".srt"], type="filepath")
+        srt_voice = gr.Dropdown(
+            label="Voice",
+            choices=available_voices,
+            value=default_voice,
+        )
+        run_srt = gr.Button("Synthesize From SRT")
+        srt_audio = gr.Audio(type="filepath", label="Timeline Audio")
+        srt_meta = gr.JSON(label="SRT Result")
+        run_srt.click(
+            fn=synthesize_srt_file,
+            inputs=[srt_file, srt_voice, temperature_input, top_k_input],
+            outputs=[srt_audio, srt_meta],
         )
 
     with gr.Tab("Engine"):

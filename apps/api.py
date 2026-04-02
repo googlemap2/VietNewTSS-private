@@ -9,10 +9,12 @@ from yourtts.utils.env import load_dotenv
 load_dotenv()
 
 from flask import Flask, Response, jsonify, request
+import numpy as np
 import soundfile as sf
 import yaml
 
 from yourtts.factory import create_engine
+from yourtts.utils.srt import decode_srt_bytes, parse_srt_text
 
 
 def load_config() -> dict:
@@ -39,6 +41,33 @@ app = Flask(__name__)
 
 def _make_timestamp() -> str:
     return datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+
+
+def _synthesize_srt_segments(segments, voice: str | None, ref_audio: str | None = None) -> np.ndarray:
+    timeline = np.zeros(0, dtype=np.float32)
+    for seg in segments:
+        wave = np.asarray(
+            engine.synthesize_waveform(text=seg.text, voice=voice, ref_audio=ref_audio),
+            dtype=np.float32,
+        ).reshape(-1)
+        if wave.size == 0:
+            continue
+
+        start_sample = max(0, int(round(seg.start_ms * engine.sample_rate / 1000.0)))
+        if timeline.size < start_sample:
+            timeline = np.concatenate([timeline, np.zeros(start_sample - timeline.size, dtype=np.float32)])
+
+        end_sample = start_sample + wave.size
+        if timeline.size < end_sample:
+            timeline = np.concatenate([timeline, np.zeros(end_sample - timeline.size, dtype=np.float32)])
+
+        timeline[start_sample:end_sample] += wave
+
+    if timeline.size:
+        peak = float(np.max(np.abs(timeline)))
+        if peak > 1.0:
+            timeline = timeline / peak
+    return timeline.astype(np.float32)
 
 
 @app.post("/synthesize")
@@ -128,6 +157,83 @@ def synthesize_clone() -> tuple:
     out_path = clone_dir / f"clone_{stamp}.wav"
     produced = engine.synthesize_to_file(text=text, output_path=str(out_path), voice=voice, ref_audio=str(ref_path))
     return jsonify({"status": "ok", "output_path": produced, "ref_audio_path": str(ref_path)}), 200
+
+
+@app.post("/synthesize_srt")
+def synthesize_srt() -> tuple:
+    payload = request.get_json(silent=True) or {}
+    raw_text = str(payload.get("srt_text", "")).strip()
+    voice = payload.get("voice")
+    ref_audio = payload.get("ref_audio")
+
+    if not raw_text:
+        return jsonify({"error": "srt_text is required"}), 400
+
+    segments = parse_srt_text(raw_text)
+    if not segments:
+        return jsonify({"error": "No valid subtitle segments found in SRT"}), 400
+
+    waveform = _synthesize_srt_segments(segments, voice=voice, ref_audio=ref_audio)
+    if waveform.size == 0:
+        return jsonify({"error": "Could not render audio from SRT segments"}), 400
+
+    stamp = _make_timestamp()
+    output_path = Path(config.get("output_dir", "outputs")) / f"srt_{stamp}.wav"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(output_path, waveform, engine.sample_rate)
+
+    return (
+        jsonify(
+            {
+                "status": "ok",
+                "output_path": str(output_path),
+                "segment_count": len(segments),
+                "duration_sec": round(float(waveform.size) / float(engine.sample_rate), 3),
+            }
+        ),
+        200,
+    )
+
+
+@app.post("/synthesize_srt_file")
+def synthesize_srt_file() -> tuple:
+    voice = request.form.get("voice")
+    ref_audio = request.form.get("ref_audio")
+    uploaded = request.files.get("srt_file")
+
+    if uploaded is None or not uploaded.filename:
+        return jsonify({"error": "srt_file is required"}), 400
+    if not uploaded.filename.lower().endswith(".srt"):
+        return jsonify({"error": "srt_file must have .srt extension"}), 400
+
+    raw_text = decode_srt_bytes(uploaded.read()).strip()
+    if not raw_text:
+        return jsonify({"error": "srt_file is empty"}), 400
+
+    segments = parse_srt_text(raw_text)
+    if not segments:
+        return jsonify({"error": "No valid subtitle segments found in SRT"}), 400
+
+    waveform = _synthesize_srt_segments(segments, voice=voice, ref_audio=ref_audio)
+    if waveform.size == 0:
+        return jsonify({"error": "Could not render audio from SRT segments"}), 400
+
+    stamp = _make_timestamp()
+    output_path = Path(config.get("output_dir", "outputs")) / f"srt_file_{stamp}.wav"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(output_path, waveform, engine.sample_rate)
+
+    return (
+        jsonify(
+            {
+                "status": "ok",
+                "output_path": str(output_path),
+                "segment_count": len(segments),
+                "duration_sec": round(float(waveform.size) / float(engine.sample_rate), 3),
+            }
+        ),
+        200,
+    )
 
 
 @app.post("/warmup")

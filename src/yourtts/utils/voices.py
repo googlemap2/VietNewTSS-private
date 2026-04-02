@@ -6,12 +6,16 @@ from pathlib import Path
 
 def load_voices(path: str = "assets/voices.json") -> dict:
     source = Path(path)
+    fallback = {"default": {"base_hz": 220.0, "gain": 0.20, "description": "Fallback voice"}}
     if not source.exists():
-        return {"default": {"base_hz": 220.0, "gain": 0.20, "description": "Fallback voice"}}
+        return fallback
 
-    payload = json.loads(source.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
     if not isinstance(payload, dict) or not payload:
-        return {"default": {"base_hz": 220.0, "gain": 0.20, "description": "Fallback voice"}}
+        return fallback
     return payload
 
 
