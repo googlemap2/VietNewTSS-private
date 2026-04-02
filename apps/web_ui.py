@@ -34,8 +34,8 @@ engine = create_engine(
     cache_size=int(config.get("cache_size", 128)),
 )
 available_voices = engine.list_voices()
-default_temperature = float(config.get("temperature", 0.35))
-default_top_k = int(config.get("top_k", 40))
+default_temperature = float(config.get("temperature", 0.05))
+default_top_k = int(config.get("top_k", 1))
 configured_voice = str(config.get("voice", "default"))
 default_voice = configured_voice if configured_voice in available_voices else (available_voices[0] if available_voices else "default")
 
@@ -186,7 +186,7 @@ with gr.Blocks(title="yourtts") as demo:
     with gr.Accordion("Emotion Settings", open=False):
         temperature_input = gr.Slider(
             label="Temperature (higher = more expressive, less stable)",
-            minimum=0.1,
+            minimum=0.01,
             maximum=1.0,
             step=0.05,
             value=default_temperature,

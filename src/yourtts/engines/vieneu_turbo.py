@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import numpy as np
 
 from yourtts.base import BaseEngine
@@ -14,12 +16,22 @@ class VieneuTurboEngine(BaseEngine):
         # Turbo generation is stochastic; caching can pin a bad first sample forever.
         self.cache_size = 0
         self._wave_cache.clear()
-        self.temperature = 0.35
-        self.top_k = 40
+        self.temperature = 0.05
+        self.top_k = 1
         self.max_chars = 256
+        self.stable_mode = True
 
     def _prepare_text(self, text: str) -> str:
         prompt = self.validate_text(text)
+        if self.stable_mode:
+            # Tone down expressive punctuation so the turbo model is less likely
+            # to inject emotional fillers or interjections.
+            prompt = re.sub(r"\s+", " ", prompt).strip()
+            prompt = prompt.replace("...", ".")
+            prompt = re.sub(r"[!?;:]+", ".", prompt)
+            prompt = re.sub(r"\.{2,}", ".", prompt)
+            prompt = re.sub(r"\s*\.\s*", ". ", prompt).strip()
+
         if prompt[-1] not in ".!?":
             return f"{prompt}."
         return prompt
