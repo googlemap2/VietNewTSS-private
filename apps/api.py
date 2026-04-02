@@ -14,7 +14,7 @@ import soundfile as sf
 import yaml
 
 from yourtts.factory import create_engine
-from yourtts.utils.srt import decode_srt_bytes, parse_srt_text
+from yourtts.utils.srt import decode_srt_bytes, parse_srt_text, speed_up_waveform
 
 
 def load_config() -> dict:
@@ -43,8 +43,23 @@ def _make_timestamp() -> str:
     return datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
 
 
-def _synthesize_srt_segments(segments, voice: str | None, ref_audio: str | None = None) -> np.ndarray:
+def _parse_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _synthesize_srt_segments(
+    segments,
+    voice: str | None,
+    ref_audio: str | None = None,
+    fast_mode: bool = False,
+    fast_speed: float = 1.15,
+) -> tuple[np.ndarray, dict]:
     timeline = np.zeros(0, dtype=np.float32)
+    sped_up_segments = 0
+    max_speed = 1.0
+    configured_speed = max(1.0, float(fast_speed))
     for seg in segments:
         wave = np.asarray(
             engine.synthesize_waveform(text=seg.text, voice=voice, ref_audio=ref_audio),
@@ -52,6 +67,11 @@ def _synthesize_srt_segments(segments, voice: str | None, ref_audio: str | None 
         ).reshape(-1)
         if wave.size == 0:
             continue
+
+        if fast_mode and configured_speed > 1.0:
+            wave = speed_up_waveform(wave, configured_speed)
+            sped_up_segments += 1
+            max_speed = max(max_speed, configured_speed)
 
         start_sample = max(0, int(round(seg.start_ms * engine.sample_rate / 1000.0)))
         if timeline.size < start_sample:
@@ -67,7 +87,12 @@ def _synthesize_srt_segments(segments, voice: str | None, ref_audio: str | None 
         peak = float(np.max(np.abs(timeline)))
         if peak > 1.0:
             timeline = timeline / peak
-    return timeline.astype(np.float32)
+    return timeline.astype(np.float32), {
+        "fast_mode": bool(fast_mode),
+        "fast_speed": round(configured_speed, 3),
+        "sped_up_segments": sped_up_segments,
+        "max_speed_factor": round(max_speed, 3),
+    }
 
 
 @app.post("/synthesize")
@@ -165,6 +190,8 @@ def synthesize_srt() -> tuple:
     raw_text = str(payload.get("srt_text", "")).strip()
     voice = payload.get("voice")
     ref_audio = payload.get("ref_audio")
+    fast_mode = _parse_bool(payload.get("fast_mode", False))
+    fast_speed = float(payload.get("fast_speed", 1.15))
 
     if not raw_text:
         return jsonify({"error": "srt_text is required"}), 400
@@ -173,7 +200,13 @@ def synthesize_srt() -> tuple:
     if not segments:
         return jsonify({"error": "No valid subtitle segments found in SRT"}), 400
 
-    waveform = _synthesize_srt_segments(segments, voice=voice, ref_audio=ref_audio)
+    waveform, render_meta = _synthesize_srt_segments(
+        segments,
+        voice=voice,
+        ref_audio=ref_audio,
+        fast_mode=fast_mode,
+        fast_speed=fast_speed,
+    )
     if waveform.size == 0:
         return jsonify({"error": "Could not render audio from SRT segments"}), 400
 
@@ -189,6 +222,7 @@ def synthesize_srt() -> tuple:
                 "output_path": str(output_path),
                 "segment_count": len(segments),
                 "duration_sec": round(float(waveform.size) / float(engine.sample_rate), 3),
+                **render_meta,
             }
         ),
         200,
@@ -200,6 +234,8 @@ def synthesize_srt_file() -> tuple:
     voice = request.form.get("voice")
     ref_audio = request.form.get("ref_audio")
     uploaded = request.files.get("srt_file")
+    fast_mode = _parse_bool(request.form.get("fast_mode", False))
+    fast_speed = float(request.form.get("fast_speed", 1.15))
 
     if uploaded is None or not uploaded.filename:
         return jsonify({"error": "srt_file is required"}), 400
@@ -214,7 +250,13 @@ def synthesize_srt_file() -> tuple:
     if not segments:
         return jsonify({"error": "No valid subtitle segments found in SRT"}), 400
 
-    waveform = _synthesize_srt_segments(segments, voice=voice, ref_audio=ref_audio)
+    waveform, render_meta = _synthesize_srt_segments(
+        segments,
+        voice=voice,
+        ref_audio=ref_audio,
+        fast_mode=fast_mode,
+        fast_speed=fast_speed,
+    )
     if waveform.size == 0:
         return jsonify({"error": "Could not render audio from SRT segments"}), 400
 
@@ -230,6 +272,7 @@ def synthesize_srt_file() -> tuple:
                 "output_path": str(output_path),
                 "segment_count": len(segments),
                 "duration_sec": round(float(waveform.size) / float(engine.sample_rate), 3),
+                **render_meta,
             }
         ),
         200,

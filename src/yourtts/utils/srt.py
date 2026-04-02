@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+import numpy as np
+
 
 @dataclass(slots=True)
 class SRTSegment:
@@ -78,3 +80,37 @@ def parse_srt_text(raw_text: str) -> list[SRTSegment]:
         )
 
     return segments
+
+
+def fit_waveform_to_duration(
+    waveform: np.ndarray,
+    sample_rate: int,
+    target_ms: int,
+) -> tuple[np.ndarray, float]:
+    wave = np.asarray(waveform, dtype=np.float32).reshape(-1)
+    if wave.size == 0 or sample_rate <= 0 or target_ms <= 0:
+        return wave, 1.0
+
+    target_samples = max(1, int(round(sample_rate * target_ms / 1000.0)))
+    if wave.size <= target_samples:
+        return wave, 1.0
+
+    src_x = np.linspace(0.0, 1.0, num=wave.size, endpoint=True)
+    dst_x = np.linspace(0.0, 1.0, num=target_samples, endpoint=True)
+    stretched = np.interp(dst_x, src_x, wave).astype(np.float32)
+    speed_factor = float(wave.size) / float(target_samples)
+    return stretched, speed_factor
+
+
+def speed_up_waveform(
+    waveform: np.ndarray,
+    speed_factor: float,
+) -> np.ndarray:
+    wave = np.asarray(waveform, dtype=np.float32).reshape(-1)
+    if wave.size == 0 or speed_factor <= 1.0:
+        return wave
+
+    target_samples = max(1, int(round(wave.size / float(speed_factor))))
+    src_x = np.linspace(0.0, 1.0, num=wave.size, endpoint=True)
+    dst_x = np.linspace(0.0, 1.0, num=target_samples, endpoint=True)
+    return np.interp(dst_x, src_x, wave).astype(np.float32)

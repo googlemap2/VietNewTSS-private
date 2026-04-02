@@ -2,8 +2,9 @@ import io
 from pathlib import Path
 
 import apps.api as api
+import numpy as np
 from yourtts.factory import create_engine
-from yourtts.utils.srt import decode_srt_bytes, parse_srt_text
+from yourtts.utils.srt import decode_srt_bytes, fit_waveform_to_duration, parse_srt_text, speed_up_waveform
 
 
 def _use_standard_engine(tmp_path: Path | None = None) -> None:
@@ -87,3 +88,43 @@ def test_srt_utils_and_file_endpoint(tmp_path: Path) -> None:
     payload = response.get_json()
     assert payload["segment_count"] == len(segments)
     assert Path(payload["output_path"]).exists()
+    assert "sped_up_segments" in payload
+    assert "max_speed_factor" in payload
+    assert payload["fast_mode"] is False
+    assert payload["sped_up_segments"] == 0
+    assert payload["max_speed_factor"] == 1.0
+
+
+def test_fit_waveform_to_duration_speeds_up_when_needed() -> None:
+    wave = np.linspace(-1.0, 1.0, num=2000, dtype=np.float32)
+    fitted, speed = fit_waveform_to_duration(wave, sample_rate=1000, target_ms=1000)
+    assert fitted.size == 1000
+    assert speed == 2.0
+
+
+def test_speed_up_waveform_respects_factor() -> None:
+    wave = np.linspace(-1.0, 1.0, num=1000, dtype=np.float32)
+    faster = speed_up_waveform(wave, 1.25)
+    assert faster.size == 800
+
+
+def test_srt_file_endpoint_fast_mode_is_manual(tmp_path: Path) -> None:
+    _use_standard_engine(tmp_path)
+    client = api.app.test_client()
+
+    srt_path = Path("nhioa.srt")
+    response = client.post(
+        "/synthesize_srt_file",
+        data={
+            "srt_file": (io.BytesIO(srt_path.read_bytes()), srt_path.name),
+            "voice": "default",
+            "fast_mode": "true",
+            "fast_speed": "1.25",
+        },
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["fast_mode"] is True
+    assert payload["fast_speed"] == 1.25
+    assert payload["sped_up_segments"] > 0

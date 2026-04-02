@@ -13,7 +13,7 @@ import soundfile as sf
 import yaml
 
 from yourtts.factory import create_engine
-from yourtts.utils.srt import decode_srt_bytes, parse_srt_text
+from yourtts.utils.srt import decode_srt_bytes, parse_srt_text, speed_up_waveform
 
 
 def load_config() -> dict:
@@ -44,9 +44,19 @@ def _runtime_options(temperature: float, top_k: int) -> dict:
     return {"temperature": float(temperature), "top_k": int(top_k)}
 
 
-def _synthesize_srt_segments(segments, voice: str | None, temperature: float, top_k: int) -> np.ndarray:
+def _synthesize_srt_segments(
+    segments,
+    voice: str | None,
+    temperature: float,
+    top_k: int,
+    fast_mode: bool = False,
+    fast_speed: float = 1.15,
+) -> tuple[np.ndarray, dict]:
     timeline = np.zeros(0, dtype=np.float32)
     runtime_options = _runtime_options(temperature, top_k)
+    sped_up_segments = 0
+    max_speed = 1.0
+    configured_speed = max(1.0, float(fast_speed))
     for seg in segments:
         wave = np.asarray(
             engine.synthesize_waveform(text=seg.text, voice=voice, **runtime_options),
@@ -54,6 +64,11 @@ def _synthesize_srt_segments(segments, voice: str | None, temperature: float, to
         ).reshape(-1)
         if wave.size == 0:
             continue
+
+        if fast_mode and configured_speed > 1.0:
+            wave = speed_up_waveform(wave, configured_speed)
+            sped_up_segments += 1
+            max_speed = max(max_speed, configured_speed)
 
         start_sample = max(0, int(round(seg.start_ms * engine.sample_rate / 1000.0)))
         if timeline.size < start_sample:
@@ -69,7 +84,12 @@ def _synthesize_srt_segments(segments, voice: str | None, temperature: float, to
         peak = float(np.max(np.abs(timeline)))
         if peak > 1.0:
             timeline = timeline / peak
-    return timeline.astype(np.float32)
+    return timeline.astype(np.float32), {
+        "fast_mode": bool(fast_mode),
+        "fast_speed": round(configured_speed, 3),
+        "sped_up_segments": sped_up_segments,
+        "max_speed_factor": round(max_speed, 3),
+    }
 
 
 def synthesize(text: str, voice: str, temperature: float, top_k: int) -> str:
@@ -110,7 +130,14 @@ def synthesize_batch(text_blob: str, voice: str, temperature: float, top_k: int)
     )
 
 
-def synthesize_srt_file(srt_file: str | None, voice: str, temperature: float, top_k: int) -> tuple[str | None, dict]:
+def synthesize_srt_file(
+    srt_file: str | None,
+    voice: str,
+    temperature: float,
+    top_k: int,
+    fast_mode: bool,
+    fast_speed: float,
+) -> tuple[str | None, dict]:
     if not srt_file:
         return None, {"status": "error", "detail": "Please upload an .srt file."}
 
@@ -126,7 +153,14 @@ def synthesize_srt_file(srt_file: str | None, voice: str, temperature: float, to
     if not segments:
         return None, {"status": "error", "detail": "No valid subtitle segments found in SRT."}
 
-    waveform = _synthesize_srt_segments(segments, voice=voice, temperature=temperature, top_k=top_k)
+    waveform, render_meta = _synthesize_srt_segments(
+        segments,
+        voice=voice,
+        temperature=temperature,
+        top_k=top_k,
+        fast_mode=fast_mode,
+        fast_speed=fast_speed,
+    )
     if waveform.size == 0:
         return None, {"status": "error", "detail": "Could not render audio from SRT segments."}
 
@@ -139,6 +173,7 @@ def synthesize_srt_file(srt_file: str | None, voice: str, temperature: float, to
         "output_path": str(output_path),
         "segment_count": len(segments),
         "duration_sec": round(float(waveform.size) / float(engine.sample_rate), 3),
+        **render_meta,
     }
 
 
@@ -217,12 +252,14 @@ with gr.Blocks(title="yourtts") as demo:
             choices=available_voices,
             value=default_voice,
         )
+        srt_fast_mode = gr.Checkbox(label="Fast Read Mode", value=False)
+        srt_fast_speed = gr.Slider(label="Fast Speed", minimum=1.0, maximum=2.0, step=0.05, value=1.15)
         run_srt = gr.Button("Synthesize From SRT")
         srt_audio = gr.Audio(type="filepath", label="Timeline Audio")
         srt_meta = gr.JSON(label="SRT Result")
         run_srt.click(
             fn=synthesize_srt_file,
-            inputs=[srt_file, srt_voice, temperature_input, top_k_input],
+            inputs=[srt_file, srt_voice, temperature_input, top_k_input, srt_fast_mode, srt_fast_speed],
             outputs=[srt_audio, srt_meta],
         )
 
